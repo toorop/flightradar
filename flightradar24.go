@@ -2,35 +2,98 @@ package flightradar
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"net/http"
-	"reflect"
 )
 
-type RadarOptions struct {
-	Faa               bool // use US/canada data source
-	Flarm             bool // use Flarm data source
-	Mlat              bool // use MLAT data source
-	Adsb              bool // use ADS-B data source
-	InAir             bool // get in-air aircraft
-	OnGround          bool // get on-ground aircraft
-	Inactive          bool // get inactive aircraft (on ground ;) )
-	Gliders           bool // get gliders
-	EstimatedPosition bool // get estimated position
+const FRadar24BaseURL = "https://data-live.flightradar24.com/zones/fcgi/feed.js?"
+
+type FRadar24 struct {
+	options RadarOptions
 }
 
-type RadarResponse struct {
-	FullCount int `json:"full_count"` // total number of aircraft
-	Version   int `json:"version"`    // version of the data
-	Aircrafts []Aircraft
+func NewFRadar24(options RadarOptions) (*FRadar24, error) {
+	// todo: validate options
+	return &FRadar24{
+		options: options,
+	}, nil
 }
 
-type FRadar24 struct{}
+// Scan scans the radar for flights
+// https://data-live.flightradar24.com/zones/fcgi/feed.js?
+//faa=1&
+//bounds=49.072%2C48.918%2C2.431%2C2.695&  49.072,48.918,2.431,2.695
+//satellite=1&
+//mlat=1&
+//flarm=1&
+//adsb=1&
+//gnd=1&
+//air=1&
+//vehicles=1&
+//estimated=1&
+//maxage=14400&
+//gliders=1&stats=1
 
 func (r FRadar24) Scan() ([]Aircraft, error) {
 
-	resp, err := http.Get("https://data-live.flightradar24.com/zones/fcgi/feed.js?faa=1&bounds=49.072%2C48.918%2C2.431%2C2.695&satellite=1&mlat=1&flarm=1&adsb=1&gnd=1&air=1&vehicles=1&estimated=1&maxage=14400&gliders=1&stats=1")
+	//var fullCount, version int
+
+	// URL
+	url := FRadar24BaseURL
+
+	// faa
+	if r.options.Faa {
+		url += "faa=1&"
+	}
+	// bounds
+	url += fmt.Sprintf("bounds=%f,%f,%f,%f&", r.options.Bounds[0], r.options.Bounds[2], r.options.Bounds[1], r.options.Bounds[3])
+
+	//satellite
+	/*if r.options.satellite {
+		url += "satellite=1&"
+	}
+
+	*/
+
+	//mlat
+	if r.options.Mlat {
+		url += "mlat=1&"
+	}
+	// flarm
+	if r.options.Flarm {
+		url += "flarm=1&"
+	}
+	// adsb
+	if r.options.Adsb {
+		url += "adsb=1&"
+	}
+	// gnd
+	if r.options.OnGround {
+		url += "gnd=1&"
+	}
+	// air
+	if r.options.InAir {
+		url += "air=1&"
+	}
+	// vehicles
+	if r.options.Inactive {
+		url += "vehicles=1&"
+	}
+	// estimated
+	url += "estimated=1&"
+
+	// max age
+	//url += fmt.Sprintf("maxage=%d&", r.options.maxage)
+	// gliders
+	if r.options.Gliders {
+		url += "gliders=1"
+	}
+
+	fmt.Printf("URL: %s\n", url)
+
+	resp, err := http.Get(url)
 	if err != nil {
 		return nil, err
 	}
@@ -50,15 +113,16 @@ func (r FRadar24) Scan() ([]Aircraft, error) {
 		return nil, err
 	}
 
-	rr := RadarResponse{}
+	//rr := RadarResponse{}
+	aircrafts := make([]Aircraft, 0)
 	//rr.Aircrafts = make(map[string]interface{})
 
 	for k, v := range response {
 		switch k {
 		case "full_count":
-			rr.FullCount = int(v.(float64))
+			//fullCount = int(v.(float64))
 		case "version":
-			rr.Version = int(v.(float64))
+			//version = int(v.(float64))
 		case "stats":
 			//
 		default:
@@ -86,34 +150,9 @@ func (r FRadar24) Scan() ([]Aircraft, error) {
 			aircraft.Company = getString(vMap[18])
 
 			// append
-			rr.Aircrafts = append(rr.Aircrafts, aircraft)
+			aircrafts = append(aircrafts, aircraft)
 		}
 	}
 
-	return rr.Aircrafts, err
-}
-
-func getString(v interface{}) string {
-	if reflect.TypeOf(v).String() == "string" {
-		return v.(string)
-	}
-	return ""
-}
-
-func getInt64(v interface{}) int64 {
-	if reflect.TypeOf(v).String() == "int64" {
-		return v.(int64)
-	}
-	return 0
-}
-
-func getBoolean(v interface{}) bool {
-	return v.(float64) == 1
-}
-
-func getUint(v interface{}) uint {
-	if reflect.TypeOf(v).String() == "uint" {
-		return v.(uint)
-	}
-	return 0
+	return aircrafts, err
 }
